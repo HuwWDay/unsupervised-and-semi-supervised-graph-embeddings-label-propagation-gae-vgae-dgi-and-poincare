@@ -86,3 +86,48 @@ def few_labels(y, n_per_class, seed=0):
 
     return labeled, rest
 
+# Step 3 - balanced_tree
+import numpy as np
+
+
+def balanced_tree(b, depth):
+    if b == 1:
+        N = depth + 1
+    else:
+        N = (b ** (depth + 1) - 1) // (b - 1)
+
+    parent = np.empty(N, dtype=np.int64)
+    level = np.empty(N, dtype=np.int64)
+    parent[0] = -1
+    level[0] = 0
+
+    if N > 1:
+        # Under 0-indexed BFS ordering, children of node p are p * b + 1 to p * b + b
+        # Inverting this gives: parent(i) = (i - 1) // b
+        indices = np.arange(1, N, dtype=np.int64)
+        parent[1:] = (indices - 1) // b
+        for i in range(1, N):
+            level[i] = level[parent[i]] + 1
+
+    A = np.zeros((N, N), dtype=np.float64)
+    if N > 1:
+        nodes = np.arange(1, N, dtype=np.int64)
+        pars = parent[1:]
+        A[nodes, pars] = 1.0
+        A[pars, nodes] = 1.0
+
+    return A, parent, level
+
+
+def tree_distances(parent):
+    N = len(parent)
+    D = np.zeros((N, N), dtype=np.int64)
+
+    # For u < v: d(v, u) = d(parent[v], u) + 1
+    for v in range(1, N):
+        p = parent[v]
+        D[v, :v] = D[p, :v] + 1
+        D[:v, v] = D[v, :v]
+
+    return D
+

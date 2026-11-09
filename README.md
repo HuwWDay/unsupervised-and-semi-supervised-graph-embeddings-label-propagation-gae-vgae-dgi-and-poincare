@@ -12,6 +12,7 @@ python scaffold.py
 
 - [x] **1.** contextual_sbm
 - [x] **2.** edge_homophily
+- [x] **3.** balanced_tree
 
 ---
 
