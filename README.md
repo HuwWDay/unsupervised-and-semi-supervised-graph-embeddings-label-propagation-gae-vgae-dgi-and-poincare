@@ -11,6 +11,7 @@ python scaffold.py
 ## Steps
 
 - [x] **1.** contextual_sbm
+- [x] **2.** edge_homophily
 
 ---
 

@@ -57,3 +57,32 @@ def contextual_sbm(
 
     return {"A": A, "X": X, "y": y, "P": P}
 
+# Step 2 - edge_homophily
+import numpy as np
+
+
+def edge_homophily(A, y):
+    i, j = np.nonzero(np.triu(A > 0, 1))
+    if len(i) == 0:
+        return 0.0
+    return float(np.mean(y[i] == y[j]))
+
+
+def few_labels(y, n_per_class, seed=0):
+    rng = np.random.default_rng([seed, 29])
+    num_classes = int(np.max(y)) + 1
+
+    selected_per_class = []
+    for c in range(num_classes):
+        class_indices = np.flatnonzero(y == c)
+        chosen = rng.choice(class_indices, n_per_class, replace=False)
+        selected_per_class.append(chosen)
+
+    labeled = np.concatenate(selected_per_class)
+
+    mask = np.ones(len(y), dtype=bool)
+    mask[labeled] = False
+    rest = np.flatnonzero(mask)
+
+    return labeled, rest
+
