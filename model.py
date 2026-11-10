@@ -131,3 +131,38 @@ def tree_distances(parent):
 
     return D
 
+# Step 4 - label_propagation
+import numpy as np
+
+
+def label_propagation(W, labeled, y_labeled, k, n_iter=100):
+    N = W.shape[0]
+
+    # Initialize F as an (N, k) float64 matrix with one-hot rows at labeled nodes
+    F = np.zeros((N, k), dtype=np.float64)
+    F[labeled, y_labeled] = 1.0
+
+    # Row-normalize W to obtain the transition matrix P
+    row_sums = W.sum(axis=1, keepdims=True)
+    P = np.divide(W, row_sums, out=np.zeros_like(W, dtype=np.float64), where=(row_sums != 0))
+
+    # Keep a copy of the fixed labeled one-hot rows
+    F_labeled = F[labeled].copy()
+
+    # Iterate propagation and reset clamped nodes
+    for _ in range(n_iter):
+        F = P @ F
+        F[labeled] = F_labeled
+
+    return F
+
+
+def dirichlet_energy(W, F):
+    # D is the degree matrix: diag(W @ 1)
+    degrees = W.sum(axis=1)
+    # L = D - W; (D - W) @ F can be written as degrees[:, None] * F - W @ F
+    LF = degrees[:, None] * F - (W @ F)
+    # tr(F.T @ LF)
+    energy = 2.0 * np.sum(F * LF)
+    return float(energy)
+
