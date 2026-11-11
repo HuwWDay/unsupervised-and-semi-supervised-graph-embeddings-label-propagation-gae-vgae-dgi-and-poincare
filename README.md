@@ -15,6 +15,7 @@ python scaffold.py
 - [x] **3.** balanced_tree
 - [x] **4.** label_propagation
 - [x] **5.** harmonic_labels
+- [x] **6.** class_mass_normalize
 
 ---
 

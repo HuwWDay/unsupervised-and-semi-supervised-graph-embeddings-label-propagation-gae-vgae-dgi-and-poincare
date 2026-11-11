@@ -201,3 +201,20 @@ def harmonic_labels(W, labeled, y_labeled, k):
 
     return F
 
+# Step 6 - class_mass_normalize
+import numpy as np
+
+
+def class_mass_normalize(F, y_labeled, k):
+    counts = np.bincount(y_labeled, minlength=k)[:k]
+    q = (counts + 1.0) / (len(y_labeled) + k)
+    m = np.maximum(F.sum(axis=0), 1e-12)
+    return F * (q / m)
+
+
+def node_accuracy(F, y, idx):
+    if len(idx) == 0:
+        return 0.0
+    preds = F.argmax(axis=1)
+    return float(np.mean(preds[idx] == y[idx]))
+
