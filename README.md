@@ -14,6 +14,7 @@ python scaffold.py
 - [x] **2.** edge_homophily
 - [x] **3.** balanced_tree
 - [x] **4.** label_propagation
+- [x] **5.** harmonic_labels
 
 ---
 

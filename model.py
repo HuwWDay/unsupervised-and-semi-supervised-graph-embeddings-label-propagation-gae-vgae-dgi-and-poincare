@@ -166,3 +166,38 @@ def dirichlet_energy(W, F):
     energy = 2.0 * np.sum(F * LF)
     return float(energy)
 
+# Step 5 - harmonic_labels
+import numpy as np
+
+
+def harmonic_labels(W, labeled, y_labeled, k):
+    N = W.shape[0]
+    F = np.zeros((N, k), dtype=np.float64)
+
+    # Set the labeled rows to their one-hot vectors
+    F[labeled, y_labeled] = 1.0
+
+    # Determine unlabeled indices in increasing order
+    is_labeled = np.zeros(N, dtype=bool)
+    is_labeled[labeled] = True
+    unlabeled = np.flatnonzero(~is_labeled)
+
+    if len(unlabeled) == 0:
+        return F
+
+    # Full graph degrees D (row sums of full W)
+    degrees = W.sum(axis=1)
+
+    # Extract submatrices for unlabeled (U) and labeled (L) blocks
+    W_UU = W[np.ix_(unlabeled, unlabeled)]
+    W_UL = W[np.ix_(unlabeled, labeled)]
+    D_UU = np.diag(degrees[unlabeled])
+
+    # Construct linear system: (D_UU - W_UU + 1e-9 * I) F_U = W_UL Y_L
+    A = D_UU - W_UU + 1e-9 * np.eye(len(unlabeled), dtype=np.float64)
+    B = W_UL @ F[labeled]
+
+    F[unlabeled] = np.linalg.solve(A, B)
+
+    return F
+
