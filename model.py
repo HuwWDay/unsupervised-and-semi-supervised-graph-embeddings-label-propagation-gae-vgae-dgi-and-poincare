@@ -218,3 +218,35 @@ def node_accuracy(F, y, idx):
     preds = F.argmax(axis=1)
     return float(np.mean(preds[idx] == y[idx]))
 
+# Step 7 - label_spreading
+import numpy as np
+
+
+def _normalized_adjacency(W):
+    W = np.asarray(W, dtype=np.float64)
+    deg = W.sum(axis=1)
+    inv_sqrt_deg = np.where(deg > 0, 1.0 / np.sqrt(deg), 0.0)
+    return W * inv_sqrt_deg[:, None] * inv_sqrt_deg[None, :]
+
+
+def label_spreading(W, labeled, y_labeled, k, alpha=0.9):
+    N = W.shape[0]
+    S = _normalized_adjacency(W)
+
+    Y = np.zeros((N, k), dtype=np.float64)
+    Y[labeled, y_labeled] = 1.0
+
+    A = np.eye(N, dtype=np.float64) - alpha * S
+    F = (1.0 - alpha) * np.linalg.solve(A, Y)
+    return F
+
+
+def spreading_objective(W, F, Y, mu):
+    F = np.asarray(F, dtype=np.float64)
+    Y = np.asarray(Y, dtype=np.float64)
+    S = _normalized_adjacency(W)
+
+    smoothness = np.sum(F * (F - S @ F))
+    fitting = mu * np.sum((F - Y) ** 2)
+    return float(smoothness + fitting)
+
