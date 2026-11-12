@@ -401,3 +401,34 @@ def deepwalk_similarity(W, T, window="dynamic"):
 
     return S
 
+# Step 11 - netmf_embedding
+import numpy as np
+
+
+def netmf_embedding(W, T=5, b=1.0, dim=16):
+    W = np.asarray(W, dtype=np.float64)
+
+    # 1. Compute DeepWalk similarity and total volume
+    S = deepwalk_similarity(W, T)
+    vol = np.sum(W)
+
+    # 2. Form M = (vol / b) * S * D^{-1} and L = log(max(M, 1))
+    deg = W.sum(axis=1)
+    inv_deg = np.where(deg > 0, 1.0 / deg, 0.0)
+    M = (vol / b) * (S * inv_deg[None, :])
+    L = np.log(np.maximum(M, 1.0))
+
+    # 3. Symmetrise L and compute its eigendecomposition
+    L = 0.5 * (L + L.T)
+    eigvals, eigvecs = np.linalg.eigh(L)
+
+    # 4. Keep top `dim` eigenpairs sorted by decreasing |lambda|
+    top_idx = np.argsort(np.abs(eigvals))[::-1][:dim]
+    lam = eigvals[top_idx]
+    V = eigvecs[:, top_idx]
+
+    Zs = V * np.sqrt(np.abs(lam))[None, :]
+    Zt = Zs * np.sign(lam)[None, :]
+
+    return Zs, Zt
+

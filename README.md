@@ -20,6 +20,7 @@ python scaffold.py
 - [x] **8.** kmeans
 - [x] **9.** laplacian_eigenmaps
 - [x] **10.** deepwalk_similarity
+- [x] **11.** netmf_embedding
 
 ---
 
