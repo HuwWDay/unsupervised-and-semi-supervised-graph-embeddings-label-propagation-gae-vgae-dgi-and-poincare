@@ -364,3 +364,40 @@ def laplacian_eigenmaps(W, dim, tau=0.0):
 
     return Z, lam
 
+# Step 10 - deepwalk_similarity
+import numpy as np
+
+
+def window_weights(T, window="dynamic"):
+    if window == "fixed":
+        return np.full(T, 1.0 / T, dtype=np.float64)
+    elif window == "dynamic":
+        # Under uniform window size w ~ Uniform{1, ..., T}, a context at distance q
+        # is included whenever w >= q (which happens for T - q + 1 choices of w).
+        # Normalizing by sum_{q=1}^T (T - q + 1) = T(T + 1) / 2 gives:
+        q = np.arange(1, T + 1, dtype=np.float64)
+        weights = T - q + 1.0
+        return weights / np.sum(weights)
+    else:
+        raise ValueError(f"Unknown window type: {window!r}")
+
+
+def deepwalk_similarity(W, T, window="dynamic"):
+    W = np.asarray(W, dtype=np.float64)
+    N = W.shape[0]
+
+    # Row-normalize W to get transition matrix P = D^{-1} W
+    row_sums = W.sum(axis=1, keepdims=True)
+    P = np.divide(W, row_sums, out=np.zeros_like(W, dtype=np.float64), where=(row_sums != 0))
+
+    weights = window_weights(T, window=window)
+
+    S = np.zeros((N, N), dtype=np.float64)
+    P_power = P.copy()
+    for q in range(T):
+        S += weights[q] * P_power
+        if q < T - 1:
+            P_power = P_power @ P
+
+    return S
+
