@@ -337,3 +337,30 @@ def adjusted_rand_index(a, b):
 
     return float((sum_comb_nij - expected_index) / denom)
 
+# Step 9 - laplacian_eigenmaps
+import numpy as np
+
+
+def laplacian_eigenmaps(W, dim, tau=0.0):
+    W = np.asarray(W, dtype=np.float64)
+    N = W.shape[0]
+
+    # Regularized adjacency matrix Wt = W + tau / N
+    Wt = W + (tau / N)
+
+    # Node degrees D (row sums of Wt) and D^{-1/2} with zero-degree guard
+    deg = Wt.sum(axis=1)
+    inv_sqrt_deg = np.where(deg > 0, 1.0 / np.sqrt(deg), 0.0)
+
+    # Normalized Laplacian: L_sym = I - D^{-1/2} Wt D^{-1/2}
+    S = Wt * inv_sqrt_deg[:, None] * inv_sqrt_deg[None, :]
+    L_sym = np.eye(N, dtype=np.float64) - S
+
+    # Eigendecomposition in ascending order
+    lam, V = np.linalg.eigh(L_sym)
+
+    # Map eigenvectors back via Z = D^{-1/2} V, skipping the first trivial eigenvector
+    Z = inv_sqrt_deg[:, None] * V[:, 1 : 1 + dim]
+
+    return Z, lam
+
