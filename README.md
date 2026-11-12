@@ -17,6 +17,7 @@ python scaffold.py
 - [x] **5.** harmonic_labels
 - [x] **6.** class_mass_normalize
 - [x] **7.** label_spreading
+- [x] **8.** kmeans
 
 ---
 

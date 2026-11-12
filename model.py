@@ -250,3 +250,90 @@ def spreading_objective(W, F, Y, mu):
     fitting = mu * np.sum((F - Y) ** 2)
     return float(smoothness + fitting)
 
+# Step 8 - kmeans
+import numpy as np
+
+
+def kmeans(Z, k, seed=0, n_init=5, n_iter=50):
+    Z = np.asarray(Z, dtype=np.float64)
+    n, d = Z.shape
+    rng = np.random.default_rng(seed)
+
+    best_labels = None
+    best_inertia = np.inf
+
+    for _ in range(n_init):
+        # 1. k-means++ seeding
+        centers = np.empty((k, d), dtype=np.float64)
+        centers[0] = Z[rng.integers(n)]
+
+        d2 = np.sum((Z - centers[0]) ** 2, axis=1)
+        for c in range(1, k):
+            total_d2 = d2.sum()
+            if total_d2 == 0.0:
+                idx = rng.integers(n)
+            else:
+                idx = rng.choice(n, p=d2 / total_d2)
+            centers[c] = Z[idx]
+            new_d2 = np.sum((Z - centers[c]) ** 2, axis=1)
+            d2 = np.minimum(d2, new_d2)
+
+        # 2. Lloyd iterations
+        labels = np.full(n, -1, dtype=np.int64)
+        for _ in range(n_iter):
+            # Pairwise squared Euclidean distances: (n, k)
+            dists = np.sum((Z[:, None, :] - centers[None, :, :]) ** 2, axis=2)
+            new_labels = np.argmin(dists, axis=1).astype(np.int64)
+
+            if np.array_equal(new_labels, labels):
+                break
+            labels = new_labels
+
+            for c in range(k):
+                mask = labels == c
+                if np.any(mask):
+                    centers[c] = Z[mask].mean(axis=0)
+
+        # Compute within-cluster sum of squares (inertia)
+        inertia = float(np.sum((Z - centers[labels]) ** 2))
+        if inertia < best_inertia:
+            best_inertia = inertia
+            best_labels = labels.copy()
+
+    return best_labels
+
+
+def adjusted_rand_index(a, b):
+    a = np.asarray(a, dtype=np.int64)
+    b = np.asarray(b, dtype=np.int64)
+    n = len(a)
+
+    if n < 2:
+        return 1.0
+
+    # Build contingency table n_ij
+    max_a = int(a.max()) + 1
+    max_b = int(b.max()) + 1
+    contingency = np.zeros((max_a, max_b), dtype=np.int64)
+    np.add.at(contingency, (a, b), 1)
+
+    def comb2(x):
+        return x * (x - 1) / 2.0
+
+    sum_comb_nij = np.sum(comb2(contingency))
+    a_sums = contingency.sum(axis=1)
+    b_sums = contingency.sum(axis=0)
+
+    sum_comb_ai = np.sum(comb2(a_sums))
+    sum_comb_bj = np.sum(comb2(b_sums))
+    comb_n = comb2(n)
+
+    expected_index = (sum_comb_ai * sum_comb_bj) / comb_n
+    max_index = 0.5 * (sum_comb_ai + sum_comb_bj)
+    denom = max_index - expected_index
+
+    if denom == 0.0:
+        return 1.0 if sum_comb_nij == expected_index else 0.0
+
+    return float((sum_comb_nij - expected_index) / denom)
+
