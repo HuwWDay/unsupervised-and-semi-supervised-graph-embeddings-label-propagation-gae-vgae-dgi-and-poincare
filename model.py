@@ -432,3 +432,76 @@ def netmf_embedding(W, T=5, b=1.0, dim=16):
 
     return Zs, Zt
 
+# Step 12 - edm_fit
+import numpy as np
+from tinygrad import Tensor, TinyJit
+from tinygrad.nn.optim import Adam
+
+
+def edm_fit(
+    params,
+    sup=None,
+    recon=None,
+    reg=None,
+    alpha=1.0,
+    beta=1.0,
+    gamma=0.0,
+    batch_fn=None,
+    steps=200,
+    lr=0.01,
+    seed=0,
+):
+    use_sup = sup is not None and alpha != 0
+    use_recon = recon is not None and beta != 0
+    use_reg = reg is not None and gamma != 0
+
+    if not (use_sup or use_recon or use_reg):
+        raise ValueError("At least one loss term must be active (callable not None and weight != 0).")
+
+    rng = np.random.default_rng(seed)
+
+    for p in params:
+        p.requires_grad = True
+
+    opt = Adam(params, lr=lr, b1=0.9, b2=0.999, eps=1e-8)
+
+    @TinyJit
+    def train_step(*batch_tensors):
+        opt.zero_grad()
+
+        loss = None
+        if use_sup:
+            term = alpha * sup()
+            loss = term if loss is None else loss + term
+        if use_recon:
+            term = beta * recon(*batch_tensors)
+            loss = term if loss is None else loss + term
+        if use_reg:
+            term = gamma * reg()
+            loss = term if loss is None else loss + term
+
+        loss.backward()
+        opt.step()
+        return loss.realize()
+
+    record_steps = {0, steps - 1}
+    for t in range(steps):
+        if (t + 1) % 50 == 0:
+            record_steps.add(t)
+
+    history = []
+    with Tensor.train():
+        for t in range(steps):
+            if use_recon and batch_fn is not None:
+                batch_np = batch_fn(rng)
+                batch_tensors = tuple(Tensor(arr) for arr in batch_np)
+            else:
+                batch_tensors = ()
+
+            loss_tensor = train_step(*batch_tensors)
+
+            if t in record_steps:
+                history.append((int(t), float(loss_tensor.item())))
+
+    return history
+
