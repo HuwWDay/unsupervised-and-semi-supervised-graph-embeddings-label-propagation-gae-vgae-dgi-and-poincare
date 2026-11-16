@@ -600,3 +600,51 @@ def link_split(A, val_frac=0.05, test_frac=0.10, seed=0):
         "test_neg": test_neg,
     }
 
+# Step 15 - link_auc
+import numpy as np
+
+
+def link_auc(pos, neg):
+    pos = np.asarray(pos, dtype=np.float64).ravel()
+    neg = np.asarray(neg, dtype=np.float64).ravel()
+
+    n_pos = len(pos)
+    n_neg = len(neg)
+    if n_pos == 0 or n_neg == 0:
+        return 0.0
+
+    scores = np.concatenate([pos, neg])
+    n = len(scores)
+
+    # Sort all scores to assign 1-based average ranks in O(n log n)
+    order = np.argsort(scores, kind="mergesort")
+    sorted_scores = scores[order]
+
+    # Identify starts and ends of tied groups
+    diff = np.empty(n, dtype=bool)
+    diff[0] = True
+    diff[1:] = sorted_scores[1:] != sorted_scores[:-1]
+    starts = np.flatnonzero(diff)
+    ends = np.empty_like(starts)
+    ends[:-1] = starts[1:] - 1
+    ends[-1] = n - 1
+
+    # Average 1-based rank for each tied block: (start + 1 + end + 1) / 2
+    avg_ranks_per_block = 0.5 * (starts + ends + 2.0)
+    block_lengths = ends - starts + 1
+    sorted_ranks = np.repeat(avg_ranks_per_block, block_lengths)
+
+    # Map ranks back to original positions
+    ranks = np.empty(n, dtype=np.float64)
+    ranks[order] = sorted_ranks
+
+    # Mann-Whitney U statistic for the positive class
+    u_pos = np.sum(ranks[:n_pos]) - (n_pos * (n_pos + 1.0)) / 2.0
+    return float(u_pos / (n_pos * n_neg))
+
+
+def pair_auc(S, pos_pairs, neg_pairs):
+    pos_scores = S[pos_pairs[:, 0], pos_pairs[:, 1]]
+    neg_scores = S[neg_pairs[:, 0], neg_pairs[:, 1]]
+    return link_auc(pos_scores, neg_scores)
+

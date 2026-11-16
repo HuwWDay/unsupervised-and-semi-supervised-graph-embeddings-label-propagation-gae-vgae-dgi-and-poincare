@@ -24,6 +24,7 @@ python scaffold.py
 - [x] **12.** edm_fit
 - [x] **13.** GCNEncoder
 - [x] **14.** link_split
+- [x] **15.** link_auc
 
 ---
 
