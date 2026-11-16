@@ -675,3 +675,63 @@ def gae_sampled_loss(Z, pos, neg):
     neg_loss = (-(-neg_logits).logsigmoid()).mean()
     return pos_loss + neg_loss
 
+# Step 17 - train_gae
+import numpy as np
+from tinygrad import Tensor
+
+
+def train_gae(split, X, hidden=32, dim=16, loss="sampled", steps=200, lr=0.01, seed=0):
+    A_train = split["A_train"]
+    N = A_train.shape[0]
+
+    # 1. Precompute normalized adjacency and node feature tensors
+    Ahat = Tensor(gcn_normalize(A_train)).realize()
+    Xt = Tensor(np.asarray(X, dtype=np.float32)).realize()
+
+    # 2. Initialize GCN encoder
+    enc = GCNEncoder(X.shape[1], hidden, dim, seed)
+
+    # 3. Prepare positive training edges tensor
+    pos = Tensor(np.asarray(split["train"], dtype=np.int32)).realize()
+    m = split["train"].shape[0]
+
+    # 4. Configure reconstruction loss and optional batch sampling
+    if loss == "sampled":
+        def batch_fn(rng):
+            return (rng.integers(0, N, (m, 2), dtype=np.int32),)
+
+        def recon(neg):
+            return gae_sampled_loss(enc(Ahat, Xt), pos, neg)
+
+    elif loss == "full":
+        At = Tensor(np.asarray(A_train, dtype=np.float32)).realize()
+        batch_fn = None
+
+        def recon():
+            return gae_full_loss(enc(Ahat, Xt), At)
+
+    elif loss == "full_unweighted":
+        At = Tensor(np.asarray(A_train, dtype=np.float32)).realize()
+        batch_fn = None
+
+        def recon():
+            return gae_full_loss(enc(Ahat, Xt), At, pos_weight=1.0)
+
+    else:
+        raise ValueError(f"Unknown loss mode: {loss!r}")
+
+    hist = edm_fit(
+        enc.parameters(),
+        recon=recon,
+        alpha=0.0,
+        beta=1.0,
+        batch_fn=batch_fn,
+        steps=steps,
+        lr=lr,
+        seed=seed,
+    )
+
+    Z = enc(Ahat, Xt).numpy()
+
+    return {"Z": Z, "enc": enc, "hist": hist}
+
