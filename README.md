@@ -23,6 +23,7 @@ python scaffold.py
 - [x] **11.** netmf_embedding
 - [x] **12.** edm_fit
 - [x] **13.** GCNEncoder
+- [x] **14.** link_split
 
 ---
 

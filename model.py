@@ -543,3 +543,60 @@ class GCNEncoder:
         H = self.hidden_layer(Ahat, X)
         return Ahat @ H @ self.W2
 
+# Step 14 - link_split
+import numpy as np
+
+
+def link_split(A, val_frac=0.05, test_frac=0.10, seed=0):
+    rng = np.random.default_rng([seed, 31])
+    N = A.shape[0]
+
+    # 1. List undirected edges (i < j) and shuffle
+    i, j = np.nonzero(np.triu(A, 1))
+    edges = np.column_stack((i, j)).astype(np.int64)
+    edges = edges[rng.permutation(len(edges))]
+
+    # 2. Slice into validation, test, and training positive edges
+    E_count = len(edges)
+    nv = int(E_count * val_frac)
+    nt = int(E_count * test_frac)
+
+    val_pos = edges[:nv]
+    test_pos = edges[nv : nv + nt]
+    train = edges[nv + nt :]
+
+    # Build symmetric A_train holding only training edges
+    A_train = np.zeros((N, N), dtype=np.float64)
+    if len(train) > 0:
+        A_train[train[:, 0], train[:, 1]] = 1.0
+        A_train[train[:, 1], train[:, 0]] = 1.0
+
+    # 3. Sample non-overlapping negative edges for validation, then test
+    seen_neg = set()
+
+    def sample_negatives(count):
+        negs = []
+        while len(negs) < count:
+            a, b = rng.integers(0, N, 2)
+            if a == b:
+                continue
+            u, v = (int(a), int(b)) if a < b else (int(b), int(a))
+            if A[u, v] == 0 and (u, v) not in seen_neg:
+                seen_neg.add((u, v))
+                negs.append((u, v))
+        if count == 0:
+            return np.empty((0, 2), dtype=np.int64)
+        return np.array(negs, dtype=np.int64)
+
+    val_neg = sample_negatives(nv)
+    test_neg = sample_negatives(nt)
+
+    return {
+        "A_train": A_train,
+        "train": train,
+        "val_pos": val_pos,
+        "test_pos": test_pos,
+        "val_neg": val_neg,
+        "test_neg": test_neg,
+    }
+
