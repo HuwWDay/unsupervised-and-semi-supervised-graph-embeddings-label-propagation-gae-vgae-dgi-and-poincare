@@ -735,3 +735,73 @@ def train_gae(split, X, hidden=32, dim=16, loss="sampled", steps=200, lr=0.01, s
 
     return {"Z": Z, "enc": enc, "hist": hist}
 
+# Step 18 - train_vgae
+import numpy as np
+from tinygrad import Tensor
+
+
+def gaussian_kl(mu, logvar):
+    # KL(N(mu, diag(exp(logvar))) || N(0, I)) = -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
+    # Summed over latent dimensions (axis=1), averaged over nodes (axis=0)
+    kl_per_node = -0.5 * (1.0 + logvar - mu * mu - logvar.exp()).sum(axis=1)
+    return kl_per_node.mean()
+
+
+def train_vgae(split, X, hidden=32, dim=16, kl_weight=1.0, steps=200, lr=0.01, seed=0):
+    A_train = split["A_train"]
+    N = A_train.shape[0]
+
+    Ahat = Tensor(gcn_normalize(A_train)).realize()
+    Xt = Tensor(np.asarray(X, dtype=np.float32)).realize()
+
+    enc = GCNEncoder(X.shape[1], hidden, dim, seed)
+    W3 = glorot(np.random.default_rng(seed + 1000), hidden, dim)
+
+    pos = Tensor(np.asarray(split["train"], dtype=np.int32)).realize()
+    m = split["train"].shape[0]
+
+    def encode():
+        H = Ahat @ enc.hidden_layer(Ahat, Xt)
+        mu = H @ enc.W2
+        logvar = (H @ W3).clip(-10.0, 10.0)
+        return mu, logvar
+
+    def batch_fn(rng):
+        neg = rng.integers(0, N, (m, 2), dtype=np.int32)
+        eps = rng.normal(0.0, 1.0, (N, dim)).astype(np.float32)
+        return (neg, eps)
+
+    def recon(neg, eps):
+        mu, logvar = encode()
+        z = mu + (0.5 * logvar).exp() * eps
+        return gae_sampled_loss(z, pos, neg)
+
+    def reg():
+        mu, logvar = encode()
+        return gaussian_kl(mu, logvar) / N
+
+    hist = edm_fit(
+        [enc.W1, enc.W2, W3],
+        recon=recon,
+        reg=reg,
+        alpha=0.0,
+        beta=1.0,
+        gamma=kl_weight,
+        batch_fn=batch_fn,
+        steps=steps,
+        lr=lr,
+        seed=seed,
+    )
+
+    mu_final, logvar_final = encode()
+    mu_np = mu_final.numpy()
+    logvar_np = logvar_final.numpy()
+    kl_per_dim = (-0.5 * (1.0 + logvar_np - mu_np ** 2 - np.exp(logvar_np))).mean(axis=0)
+
+    return {
+        "mu": mu_np,
+        "logvar": logvar_np,
+        "kl_per_dim": kl_per_dim,
+        "hist": hist,
+    }
+
