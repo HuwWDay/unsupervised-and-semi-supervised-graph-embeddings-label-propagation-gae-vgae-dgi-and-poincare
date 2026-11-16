@@ -648,3 +648,30 @@ def pair_auc(S, pos_pairs, neg_pairs):
     neg_scores = S[neg_pairs[:, 0], neg_pairs[:, 1]]
     return link_auc(pos_scores, neg_scores)
 
+# Step 16 - gae_full_loss
+import numpy as np
+from tinygrad import Tensor
+
+
+def gae_full_loss(Z, A, pos_weight=None):
+    N = A.shape[0]
+    if pos_weight is None:
+        pos_sum = A.sum()
+        w = (N * N - pos_sum) / pos_sum
+    else:
+        w = pos_weight
+
+    logits = Z @ Z.T
+    # -[w * A * log(sigma(logits)) + (1 - A) * log(sigma(-logits))]
+    loss_matrix = -(w * A * logits.logsigmoid() + (1.0 - A) * (-logits).logsigmoid())
+    return loss_matrix.mean()
+
+
+def gae_sampled_loss(Z, pos, neg):
+    pos_logits = (Z[pos[:, 0]] * Z[pos[:, 1]]).sum(axis=1)
+    neg_logits = (Z[neg[:, 0]] * Z[neg[:, 1]]).sum(axis=1)
+
+    pos_loss = (-pos_logits.logsigmoid()).mean()
+    neg_loss = (-(-neg_logits).logsigmoid()).mean()
+    return pos_loss + neg_loss
+

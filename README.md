@@ -25,6 +25,7 @@ python scaffold.py
 - [x] **13.** GCNEncoder
 - [x] **14.** link_split
 - [x] **15.** link_auc
+- [x] **16.** gae_full_loss
 
 ---
 
