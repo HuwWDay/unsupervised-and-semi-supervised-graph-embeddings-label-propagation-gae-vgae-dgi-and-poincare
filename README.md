@@ -22,6 +22,7 @@ python scaffold.py
 - [x] **10.** deepwalk_similarity
 - [x] **11.** netmf_embedding
 - [x] **12.** edm_fit
+- [x] **13.** GCNEncoder
 
 ---
 

@@ -505,3 +505,41 @@ def edm_fit(
 
     return history
 
+# Step 13 - GCNEncoder
+import math
+import numpy as np
+from tinygrad import Tensor
+
+
+def gcn_normalize(A):
+    A = np.asarray(A, dtype=np.float32)
+    N = A.shape[0]
+    A_tilde = A + np.eye(N, dtype=np.float32)
+    deg = A_tilde.sum(axis=1)
+    inv_sqrt_deg = np.where(deg > 0, 1.0 / np.sqrt(deg), 0.0).astype(np.float32)
+    Ahat = A_tilde * inv_sqrt_deg[:, None] * inv_sqrt_deg[None, :]
+    return Ahat.astype(np.float32)
+
+
+def glorot(rng, a, b):
+    limit = math.sqrt(6.0 / (a + b))
+    weights = (rng.uniform(-1.0, 1.0, (a, b)) * limit).astype(np.float32)
+    return Tensor(weights).contiguous().realize()
+
+
+class GCNEncoder:
+    def __init__(self, in_dim, hidden, out_dim, seed=0):
+        rng = np.random.default_rng(seed)
+        self.W1 = glorot(rng, in_dim, hidden)
+        self.W2 = glorot(rng, hidden, out_dim)
+
+    def parameters(self):
+        return [self.W1, self.W2]
+
+    def hidden_layer(self, Ahat, X):
+        return (Ahat @ X @ self.W1).relu()
+
+    def __call__(self, Ahat, X):
+        H = self.hidden_layer(Ahat, X)
+        return Ahat @ H @ self.W2
+
