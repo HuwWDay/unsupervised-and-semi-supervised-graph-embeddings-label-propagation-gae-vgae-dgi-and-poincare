@@ -872,3 +872,64 @@ def train_dgi(A, X, dim=256, steps=200, lr=0.001, seed=0):
     Z = embed(Xt).numpy()
     return {"Z": Z, "hist": hist}
 
+# Step 21 - linear_probe
+import numpy as np
+from tinygrad import Tensor
+
+
+def linear_probe(Z, y, train_idx, test_idx, l2=1e-3, steps=300, lr=0.05, seed=0):
+    Z = np.asarray(Z, dtype=np.float32)
+    y = np.asarray(y, dtype=np.int64)
+
+    # 1. Standardise each column over all nodes as float32
+    mean = Z.mean(axis=0, keepdims=True)
+    std = Z.std(axis=0, keepdims=True) + 1e-6
+    Z_std = ((Z - mean) / std).astype(np.float32)
+
+    L = Z_std.shape[1]
+    k = int(y.max()) + 1
+
+    # 2. Fit softmax regression on train_idx
+    W = Tensor.zeros(L, k).contiguous().realize()
+    b = Tensor.zeros(k).contiguous().realize()
+
+    X_train = Tensor(Z_std[train_idx]).realize()
+    y_train = Tensor(y[train_idx].astype(np.int32)).realize()
+
+    def sup():
+        logits = X_train @ W + b
+        return logits.sparse_categorical_crossentropy(y_train)
+
+    def reg():
+        return (W * W).sum()
+
+    edm_fit(
+        [W, b],
+        sup=sup,
+        reg=reg,
+        alpha=1.0,
+        gamma=l2,
+        steps=steps,
+        lr=lr,
+        seed=seed,
+    )
+
+    # 3. Evaluate accuracy on test_idx
+    if len(test_idx) == 0:
+        return 0.0
+
+    X_test = Tensor(Z_std[test_idx])
+    preds = (X_test @ W + b).numpy().argmax(axis=1)
+    return float(np.mean(preds == y[test_idx]))
+
+
+def smoothed_features(A, X, hops=2):
+    out = np.asarray(X, dtype=np.float32)
+    if hops == 0:
+        return out.copy()
+
+    Ahat = gcn_normalize(A)
+    for _ in range(hops):
+        out = Ahat @ out
+    return out
+

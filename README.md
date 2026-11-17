@@ -30,6 +30,7 @@ python scaffold.py
 - [x] **18.** train_vgae
 - [x] **19.** dgi_loss
 - [x] **20.** train_dgi
+- [x] **21.** linear_probe
 
 ---
 
