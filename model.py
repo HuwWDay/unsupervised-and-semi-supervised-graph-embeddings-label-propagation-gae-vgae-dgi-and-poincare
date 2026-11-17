@@ -805,3 +805,27 @@ def train_vgae(split, X, hidden=32, dim=16, kl_weight=1.0, steps=200, lr=0.01, s
         "hist": hist,
     }
 
+# Step 19 - dgi_loss
+import numpy as np
+from tinygrad import Tensor
+
+
+def readout(Z):
+    return Z.mean(axis=0).sigmoid()
+
+
+def dgi_loss(Z, Z_neg, Wb, fake_summary=False):
+    s = readout(Z)
+    s_neg = readout(Z_neg) if fake_summary else s
+
+    # Bilinear logits: z_i^T Wb s = (Z @ (Wb @ s))
+    pos_logits = Z @ (Wb @ s)
+    neg_logits = Z_neg @ (Wb @ s_neg)
+
+    # -0.5 * [ mean(log(sigma(pos_logits))) + mean(log(1 - sigma(neg_logits))) ]
+    # Note: log(1 - sigma(x)) = log(sigma(-x)) = (-x).logsigmoid()
+    pos_loss = pos_logits.logsigmoid().mean()
+    neg_loss = (-neg_logits).logsigmoid().mean()
+
+    return -0.5 * (pos_loss + neg_loss)
+
