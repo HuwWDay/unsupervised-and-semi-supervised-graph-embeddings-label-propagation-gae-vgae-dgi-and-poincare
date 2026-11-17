@@ -829,3 +829,46 @@ def dgi_loss(Z, Z_neg, Wb, fake_summary=False):
 
     return -0.5 * (pos_loss + neg_loss)
 
+# Step 20 - train_dgi
+import numpy as np
+from tinygrad import Tensor
+
+
+def train_dgi(A, X, dim=256, steps=200, lr=0.001, seed=0):
+    N = A.shape[0]
+
+    # 1. Precompute normalized adjacency and node feature tensors
+    Ahat = Tensor(gcn_normalize(A)).realize()
+    Xt = Tensor(np.asarray(X, dtype=np.float32)).realize()
+
+    # 2. Initialize GCN encoder and bilinear discriminator weights Wb
+    enc = GCNEncoder(X.shape[1], dim, dim, seed)
+    Wb = glorot(np.random.default_rng(seed + 1000), dim, dim)
+
+    def embed(x):
+        return enc(Ahat, x).relu()
+
+    # 3. Train via edm_fit with alpha=0.0, beta=1.0 (if steps > 0)
+    if steps > 0:
+        def batch_fn(rng):
+            return (rng.permutation(N).astype(np.int32),)
+
+        def recon(perm):
+            return dgi_loss(embed(Xt), embed(Xt[perm]), Wb)
+
+        hist = edm_fit(
+            [enc.W1, enc.W2, Wb],
+            recon=recon,
+            alpha=0.0,
+            beta=1.0,
+            batch_fn=batch_fn,
+            steps=steps,
+            lr=lr,
+            seed=seed,
+        )
+    else:
+        hist = []
+
+    Z = embed(Xt).numpy()
+    return {"Z": Z, "hist": hist}
+

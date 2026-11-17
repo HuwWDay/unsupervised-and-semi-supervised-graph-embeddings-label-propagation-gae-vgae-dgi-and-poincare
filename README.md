@@ -29,6 +29,7 @@ python scaffold.py
 - [x] **17.** train_gae
 - [x] **18.** train_vgae
 - [x] **19.** dgi_loss
+- [x] **20.** train_dgi
 
 ---
 
