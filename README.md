@@ -34,6 +34,7 @@ python scaffold.py
 - [x] **22.** train_gcn_classifier
 - [x] **23.** sample_context_pairs
 - [x] **24.** train_planetoid
+- [x] **25.** poincare_distance
 
 ---
 

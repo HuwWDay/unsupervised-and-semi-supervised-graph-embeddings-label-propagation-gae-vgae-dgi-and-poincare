@@ -1116,3 +1116,36 @@ def train_planetoid(S, X, y, labeled, zc_dim=16, hidden=8, pre=500, joint=200, w
         "Zc_pre": Zc_pre,
     }
 
+# Step 25 - poincare_distance
+import numpy as np
+from tinygrad import Tensor
+
+
+def poincare_distance(u, v, eps=1e-7):
+    sq_diff = ((u - v) ** 2).sum(axis=-1)
+    sq_u = (u ** 2).sum(axis=-1)
+    sq_v = (v ** 2).sum(axis=-1)
+
+    denom = (1.0 - sq_u) * (1.0 - sq_v)
+    x = 1.0 + 2.0 * sq_diff / denom
+    x = x.maximum(1.0 + eps)
+    return (x + (x - 1.0).sqrt() * (x + 1.0).sqrt()).log()
+
+
+def euclidean_distance(u, v, eps=1e-7):
+    sq_diff = ((u - v) ** 2).sum(axis=-1)
+    return (sq_diff + eps).sqrt()
+
+
+def tree_softmax_loss(Z, i, j, neg, dist):
+    z_i = Z[i]        # (m, L)
+    z_j = Z[j]        # (m, L)
+    z_neg = Z[neg]    # (m, K, L)
+
+    pos_d = dist(z_i, z_j).unsqueeze(1)        # (m, 1)
+    neg_d = dist(z_i.unsqueeze(1), z_neg)      # (m, K)
+
+    logits = -pos_d.cat(neg_d, dim=1)          # (m, 1 + K), column 0 is true neighbour
+    targets = Tensor.zeros(i.shape[0], dtype="int32")
+    return logits.sparse_categorical_crossentropy(targets)
+
