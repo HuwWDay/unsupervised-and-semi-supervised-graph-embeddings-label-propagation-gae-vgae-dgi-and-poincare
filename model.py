@@ -1149,3 +1149,21 @@ def tree_softmax_loss(Z, i, j, neg, dist):
     targets = Tensor.zeros(i.shape[0], dtype="int32")
     return logits.sparse_categorical_crossentropy(targets)
 
+# Step 26 - riemannian_update
+import numpy as np
+from tinygrad import Tensor
+
+
+def project_to_ball(Z, eps=1e-5):
+    max_norm = 1.0 - eps
+    norms = (Z * Z).sum(axis=-1, keepdim=True).sqrt()
+    scale = (norms >= max_norm).where(max_norm / norms.maximum(1e-12), 1.0)
+    return Z * scale
+
+
+def riemannian_update(Z, grad, lr, eps=1e-5):
+    sq_norm = (Z * Z).sum(axis=-1, keepdim=True)
+    metric_inv = ((1.0 - sq_norm) ** 2) * 0.25
+    Z_new = Z - lr * metric_inv * grad
+    return project_to_ball(Z_new, eps=eps)
+

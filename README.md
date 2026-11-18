@@ -35,6 +35,7 @@ python scaffold.py
 - [x] **23.** sample_context_pairs
 - [x] **24.** train_planetoid
 - [x] **25.** poincare_distance
+- [x] **26.** riemannian_update
 
 ---
 
