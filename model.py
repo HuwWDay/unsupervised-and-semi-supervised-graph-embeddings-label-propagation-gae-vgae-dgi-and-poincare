@@ -933,3 +933,64 @@ def smoothed_features(A, X, hops=2):
         out = Ahat @ out
     return out
 
+# Step 22 - train_gcn_classifier
+import numpy as np
+from tinygrad import Tensor
+
+
+def train_gcn_classifier(A, X, y, labeled, hidden=32, dim=16, beta=0.0, wd=5e-4, steps=200, lr=0.01, seed=0):
+    A = np.asarray(A)
+    N = A.shape[0]
+    y = np.asarray(y, dtype=np.int64)
+    labeled = np.asarray(labeled, dtype=np.int32)
+    k = int(y.max()) + 1
+
+    # 1. Precompute tensors, encoder, and label head
+    Ahat = Tensor(gcn_normalize(A)).realize()
+    Xt = Tensor(np.asarray(X, dtype=np.float32)).realize()
+
+    enc = GCNEncoder(X.shape[1], hidden, dim, seed)
+    Wc = glorot(np.random.default_rng(seed + 1000), dim, k)
+
+    labeled_t = Tensor(labeled).realize()
+    y_labeled_t = Tensor(y[labeled].astype(np.int32)).realize()
+
+    def sup():
+        logits = enc(Ahat, Xt)[labeled_t] @ Wc
+        return logits.sparse_categorical_crossentropy(y_labeled_t)
+
+    def reg():
+        return (enc.W1 * enc.W1).sum() + (enc.W2 * enc.W2).sum()
+
+    if beta != 0:
+        i, j = np.nonzero(np.triu(A, 1))
+        edges = np.column_stack((i, j)).astype(np.int32)
+        m = len(edges)
+        pos = Tensor(edges).realize()
+
+        def batch_fn(rng):
+            return (rng.integers(0, N, (m, 2), dtype=np.int32),)
+
+        def recon(neg):
+            return gae_sampled_loss(enc(Ahat, Xt), pos, neg)
+    else:
+        recon = None
+        batch_fn = None
+
+    # 2. Fit with edm_fit
+    edm_fit(
+        enc.parameters() + [Wc],
+        sup=sup,
+        recon=recon,
+        reg=reg,
+        alpha=1.0,
+        beta=beta,
+        gamma=wd,
+        batch_fn=batch_fn,
+        steps=steps,
+        lr=lr,
+        seed=seed,
+    )
+
+    return (enc(Ahat, Xt) @ Wc).numpy()
+

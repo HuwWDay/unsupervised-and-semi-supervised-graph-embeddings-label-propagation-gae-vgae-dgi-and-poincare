@@ -31,6 +31,7 @@ python scaffold.py
 - [x] **19.** dgi_loss
 - [x] **20.** train_dgi
 - [x] **21.** linear_probe
+- [x] **22.** train_gcn_classifier
 
 ---
 
