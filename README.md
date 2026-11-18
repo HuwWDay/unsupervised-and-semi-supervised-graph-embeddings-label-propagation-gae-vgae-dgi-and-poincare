@@ -37,6 +37,7 @@ python scaffold.py
 - [x] **25.** poincare_distance
 - [x] **26.** riemannian_update
 - [x] **27.** train_tree_embedding
+- [x] **28.** reconstruction_metrics
 
 ---
 

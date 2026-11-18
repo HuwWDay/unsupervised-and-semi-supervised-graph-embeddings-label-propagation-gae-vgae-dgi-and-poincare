@@ -1258,3 +1258,70 @@ def train_tree_embedding(
 
     return Z.numpy(), hist
 
+# Step 28 - reconstruction_metrics
+import numpy as np
+
+
+def pairwise_distances(Z, geometry):
+    Z = np.asarray(Z, dtype=np.float64)
+    diff = Z[:, None, :] - Z[None, :, :]
+    sq_diff = np.sum(diff ** 2, axis=-1)
+
+    if geometry == "euclidean":
+        return np.sqrt(sq_diff)
+    elif geometry == "poincare":
+        sq_norm = np.sum(Z ** 2, axis=-1)
+        denom = (1.0 - sq_norm)[:, None] * (1.0 - sq_norm)[None, :]
+        x = 1.0 + 2.0 * sq_diff / denom
+        x = np.maximum(x, 1.0)
+        D = np.arccosh(x)
+        np.fill_diagonal(D, 0.0)
+        return D
+    else:
+        raise ValueError(f"Unknown geometry: {geometry!r}")
+
+
+def reconstruction_metrics(D, A):
+    D = np.asarray(D, dtype=np.float64)
+    A = np.asarray(A)
+    N = A.shape[0]
+
+    all_ranks = []
+    node_aps = []
+
+    for u in range(N):
+        neighbors = np.flatnonzero(A[u] > 0)
+        if len(neighbors) == 0:
+            continue
+
+        # Non-neighbours are all other nodes (v != u) that are not adjacent to u
+        non_neighbor_mask = A[u] == 0
+        non_neighbor_mask[u] = False
+        non_neighbors = np.flatnonzero(non_neighbor_mask)
+
+        d_neigh = D[u, neighbors]
+        d_non = D[u, non_neighbors]
+
+        # Rank of v: 1 + number of non-neighbours strictly closer to u than v is
+        # Compare d_non[:, None] < d_neigh[None, :] -> shape (n_non, n_neigh)
+        if len(non_neighbors) > 0:
+            strictly_closer = np.sum(d_non[:, None] < d_neigh[None, :], axis=0)
+        else:
+            strictly_closer = np.zeros(len(neighbors), dtype=np.int64)
+
+        ranks = 1 + strictly_closer
+        all_ranks.extend(ranks.tolist())
+
+        # Average precision of u
+        sorted_ranks = np.sort(ranks)
+        k = np.arange(1, len(sorted_ranks) + 1, dtype=np.float64)
+        precisions = k / (sorted_ranks + k - 1.0)
+        node_aps.append(float(np.mean(precisions)))
+
+    if len(all_ranks) == 0:
+        return 0.0, 0.0
+
+    mean_rank = float(np.mean(all_ranks))
+    mean_ap = float(np.mean(node_aps))
+    return mean_rank, mean_ap
+
