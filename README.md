@@ -36,6 +36,7 @@ python scaffold.py
 - [x] **24.** train_planetoid
 - [x] **25.** poincare_distance
 - [x] **26.** riemannian_update
+- [x] **27.** train_tree_embedding
 
 ---
 

@@ -1167,3 +1167,94 @@ def riemannian_update(Z, grad, lr, eps=1e-5):
     Z_new = Z - lr * metric_inv * grad
     return project_to_ball(Z_new, eps=eps)
 
+# Step 27 - train_tree_embedding
+import numpy as np
+from tinygrad import Tensor, TinyJit, dtypes
+
+
+def sample_tree_negatives(rng, A, u, K):
+    num_nodes = len(A)
+    m = len(u)
+    neg = rng.integers(0, num_nodes, (m, K))
+
+    # An entry is invalid if it is a neighbour of u or u itself
+    u_col = u[:, None]
+    invalid = (neg == u_col) | (A[u_col, neg] > 0)
+    while np.any(invalid):
+        n_bad = int(invalid.sum())
+        neg[invalid] = rng.integers(0, num_nodes, n_bad)
+        invalid = (neg == u_col) | (A[u_col, neg] > 0)
+
+    return neg
+
+
+def train_tree_embedding(
+    A,
+    dim=2,
+    geometry="poincare",
+    steps=2000,
+    lr=10.0,
+    K=20,
+    burn=200,
+    burn_factor=0.1,
+    seed=0,
+):
+    A = np.asarray(A)
+    N = A.shape[0]
+    rng = np.random.default_rng(seed)
+
+    # 1. Initialize Z
+    Z_init = rng.uniform(-1e-3, 1e-3, (N, dim)).astype(np.float32)
+    Z = Tensor(Z_init, requires_grad=True).contiguous().realize()
+
+    # 2. Directed edges as realized int32 Tensors
+    i_np, j_np = np.nonzero(A)
+    i_np = i_np.astype(np.int32)
+    j_np = j_np.astype(np.int32)
+    m = len(i_np)
+
+    i_t = Tensor(i_np).realize()
+    j_t = Tensor(j_np).realize()
+
+    if geometry == "poincare":
+        dist = poincare_distance
+    elif geometry == "euclidean":
+        dist = euclidean_distance
+    else:
+        raise ValueError(f"Unknown geometry: {geometry!r}")
+
+    scale = float(m) / float(N)
+
+    # 3. TinyJit-compiled update step
+    @TinyJit
+    def train_step(neg_t, lr_t):
+        loss = tree_softmax_loss(Z, i_t, j_t, neg_t, dist)
+        grad = loss.gradient(Z)[0] * scale
+        if geometry == "poincare":
+            Z_next = riemannian_update(Z, grad, lr_t)
+        else:
+            Z_next = Z - lr_t * grad
+        Z.assign(Z_next).realize()
+        return loss.realize()
+
+    record_steps = {0, steps - 1}
+    for t in range(steps):
+        if (t + 1) % 500 == 0:
+            record_steps.add(t)
+
+    hist = []
+    # 4. Training loop
+    for t in range(steps):
+        neg_np = sample_tree_negatives(rng, A, i_np, K).astype(np.int32)
+        neg_t = Tensor(neg_np).realize()
+
+        curr_lr = lr * burn_factor if t < burn else lr
+        lr_t = Tensor([curr_lr], dtype=dtypes.float32).realize()
+
+        loss_t = train_step(neg_t, lr_t)
+
+        if t in record_steps:
+            hist.append((int(t), float(loss_t.item())))
+
+    return Z.numpy(), hist
+
