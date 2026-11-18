@@ -39,6 +39,7 @@ python scaffold.py
 - [x] **27.** train_tree_embedding
 - [x] **28.** reconstruction_metrics
 - [x] **29.** classical_mds
+- [x] **30.** graph_embeddings_report
 
 ---
 

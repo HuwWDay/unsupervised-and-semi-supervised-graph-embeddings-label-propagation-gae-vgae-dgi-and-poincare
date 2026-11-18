@@ -1359,3 +1359,383 @@ def average_distortion(D_emb, D_true):
     c = np.mean(rho)
     return float(np.mean(np.abs(rho / c - 1.0)))
 
+# Step 30 - graph_embeddings_report
+import time
+import numpy as np
+from tinygrad import Tensor
+
+GRAPH_EDM_TABLE = [
+    {
+        "method": "MDS",
+        "encoder": "Lookup table",
+        "target": "D",
+        "decoder": "Euclidean distance",
+        "loss": "Squared error",
+        "alpha": 0,
+        "beta": 1,
+        "gamma": 0,
+    },
+    {
+        "method": "Laplacian eigenmaps",
+        "encoder": "Lookup table",
+        "target": "W",
+        "decoder": "Euclidean distance",
+        "loss": "Squared error",
+        "alpha": 0,
+        "beta": 1,
+        "gamma": 0,
+    },
+    {
+        "method": "Poincare embedding",
+        "encoder": "Lookup table",
+        "target": "W",
+        "decoder": "Poincare distance",
+        "loss": "Tree softmax",
+        "alpha": 0,
+        "beta": 1,
+        "gamma": 0,
+    },
+    {
+        "method": "DeepWalk / NetMF",
+        "encoder": "Lookup table",
+        "target": "s(W)",
+        "decoder": "Inner product",
+        "loss": "Cross-entropy / SE",
+        "alpha": 0,
+        "beta": 1,
+        "gamma": 0,
+    },
+    {
+        "method": "Label propagation",
+        "encoder": "Lookup table",
+        "target": "W",
+        "decoder": "identity",
+        "loss": "Squared error",
+        "alpha": 1,
+        "beta": 1,
+        "gamma": 0,
+    },
+    {
+        "method": "Label spreading",
+        "encoder": "Lookup table",
+        "target": "D^-1/2 W D^-1/2",
+        "decoder": "identity",
+        "loss": "Squared error",
+        "alpha": 1,
+        "beta": 1,
+        "gamma": 1,
+    },
+    {
+        "method": "GCN classifier",
+        "encoder": "GCN",
+        "target": "None",
+        "decoder": "None",
+        "loss": "Cross-entropy",
+        "alpha": 1,
+        "beta": 0,
+        "gamma": 1,
+    },
+    {
+        "method": "GAE",
+        "encoder": "GCN",
+        "target": "W",
+        "decoder": "Inner product",
+        "loss": "Cross-entropy",
+        "alpha": 0,
+        "beta": 1,
+        "gamma": 0,
+    },
+    {
+        "method": "VGAE",
+        "encoder": "GCN",
+        "target": "W",
+        "decoder": "Inner product",
+        "loss": "Cross-entropy",
+        "alpha": 0,
+        "beta": 1,
+        "gamma": "KL",
+    },
+    {
+        "method": "DGI",
+        "encoder": "GCN",
+        "target": "s(W, X)",
+        "decoder": "Bilinear",
+        "loss": "Contrastive",
+        "alpha": 0,
+        "beta": 1,
+        "gamma": 0,
+    },
+    {
+        "method": "Planetoid",
+        "encoder": "Lookup + MLP",
+        "target": "s(W)",
+        "decoder": "Inner product",
+        "loss": "Cross-entropy",
+        "alpha": 1,
+        "beta": 1,
+        "gamma": 1,
+    },
+]
+
+
+def graph_embeddings_report(seed=0, n=1000, scale=1.0, tree=(3, 5)):
+    t0 = time.perf_counter()
+
+    def S(steps):
+        return max(2, int(steps * scale))
+
+    # Main graph
+    g = contextual_sbm(n=n, seed=seed)
+    A = g["A"]
+    X = g["X"]
+    y = g["y"]
+    P = g["P"]
+    k = int(y.max()) + 1
+    N = A.shape[0]
+
+    # 1. graph stats
+    degrees = A.sum(axis=1)
+    graph_stats = {
+        "edges": int(np.triu(A, 1).sum()),
+        "homophily": float(edge_homophily(A, y)),
+        "isolated": int(np.sum(degrees == 0)),
+        "max_degree": int(degrees.max()),
+    }
+
+    # 2. flood (no degree correction, avg_degree=8.0, 2 labels per class)
+    g_reg = contextual_sbm(n=n, avg_degree=8.0, degree_shape=0, seed=seed)
+    A_reg, y_reg = g_reg["A"], g_reg["y"]
+    k_reg = int(y_reg.max()) + 1
+    labeled_reg, unlabeled_reg = few_labels(y_reg, 2, seed=seed)
+
+    F_harm_reg = harmonic_labels(A_reg, labeled_reg, y_reg[labeled_reg], k_reg)
+    F_norm_reg = class_mass_normalize(F_harm_reg, y_reg[labeled_reg], k_reg)
+    F_spread_reg = label_spreading(A_reg, labeled_reg, y_reg[labeled_reg], k_reg)
+
+    preds_harm_reg = F_harm_reg[unlabeled_reg].argmax(axis=1)
+    counts_harm = np.bincount(preds_harm_reg, minlength=k_reg)
+    largest_class_share = float(counts_harm.max() / len(unlabeled_reg))
+
+    flood_stats = {
+        "harmonic": float(node_accuracy(F_harm_reg, y_reg, unlabeled_reg)),
+        "normalized": float(node_accuracy(F_norm_reg, y_reg, unlabeled_reg)),
+        "spreading": float(node_accuracy(F_spread_reg, y_reg, unlabeled_reg)),
+        "largest_class_share": largest_class_share,
+    }
+
+    # Precompute unsupervised / full-graph representations on main graph
+    X_smooth = smoothed_features(A, X)
+    S_dw = deepwalk_similarity(A, 5)
+
+    ei, ej = np.nonzero(np.triu(A, 1))
+    full_edges = np.column_stack((ei, ej)).astype(np.int64)
+    Z_gae = train_gae({"A_train": A, "train": full_edges}, X, steps=S(200), seed=seed)["Z"]
+
+    Z_dgi_untrained = train_dgi(A, X, steps=0, seed=seed)["Z"]
+    Z_dgi = train_dgi(A, X, steps=S(200), seed=seed)["Z"]
+
+    # 3. node_accuracy and 4. joint_beta
+    node_acc = {}
+    joint_beta = {}
+
+    for c in (2, 10):
+        labeled, unlabeled = few_labels(y, c, seed=seed)
+        y_lab = y[labeled]
+
+        F_harm = harmonic_labels(A, labeled, y_lab, k)
+        F_norm = class_mass_normalize(F_harm, y_lab, k)
+        F_spread = label_spreading(A, labeled, y_lab, k)
+
+        pl_res = train_planetoid(
+            S_dw, X, y, labeled, pre=S(500), joint=S(200), seed=seed
+        )
+        gcn_logits = train_gcn_classifier(A, X, y, labeled, beta=0.0, steps=S(200), seed=seed)
+
+        node_acc[c] = {
+            "features": float(linear_probe(X, y, labeled, unlabeled, seed=seed)),
+            "harmonic": float(node_accuracy(F_harm, y, unlabeled)),
+            "normalized": float(node_accuracy(F_norm, y, unlabeled)),
+            "spreading": float(node_accuracy(F_spread, y, unlabeled)),
+            "smoothed": float(linear_probe(X_smooth, y, labeled, unlabeled, seed=seed)),
+            "dgi_untrained": float(linear_probe(Z_dgi_untrained, y, labeled, unlabeled, seed=seed)),
+            "dgi": float(linear_probe(Z_dgi, y, labeled, unlabeled, seed=seed)),
+            "gae": float(linear_probe(Z_gae, y, labeled, unlabeled, seed=seed)),
+            "planetoid_two_stage": float(linear_probe(pl_res["Zc_pre"], y, labeled, unlabeled, seed=seed)),
+            "planetoid": float(node_accuracy(pl_res["logits"], y, unlabeled)),
+            "gcn": float(node_accuracy(gcn_logits, y, unlabeled)),
+        }
+
+        joint_beta[c] = {}
+        for b_val in (0.0, 0.1, 1.0):
+            if b_val == 0.0:
+                logits_b = gcn_logits
+            else:
+                logits_b = train_gcn_classifier(A, X, y, labeled, beta=b_val, steps=S(200), seed=seed)
+            joint_beta[c][b_val] = float(node_accuracy(logits_b, y, unlabeled))
+
+    # 5. ari and zero_eigenvalues
+    Z_em_0, evals_0 = laplacian_eigenmaps(A, 4, tau=0.0)
+    zero_evals = int(np.sum(np.abs(evals_0) < 1e-9))
+
+    Z_em_tau, _ = laplacian_eigenmaps(A, 4, tau=1.0)
+    Zs_netmf, _ = netmf_embedding(A, T=5, dim=16)
+
+    ari_stats = {
+        "features": float(adjusted_rand_index(kmeans(X, 5, seed=seed), y)),
+        "smoothed": float(adjusted_rand_index(kmeans(X_smooth, 5, seed=seed), y)),
+        "eigenmaps": float(adjusted_rand_index(kmeans(Z_em_0, 5, seed=seed), y)),
+        "eigenmaps_tau": float(adjusted_rand_index(kmeans(Z_em_tau, 5, seed=seed), y)),
+        "netmf": float(adjusted_rand_index(kmeans(Zs_netmf, 5, seed=seed), y)),
+        "dgi_untrained": float(adjusted_rand_index(kmeans(Z_dgi_untrained, 5, seed=seed), y)),
+        "dgi": float(adjusted_rand_index(kmeans(Z_dgi, 5, seed=seed), y)),
+        "gae": float(adjusted_rand_index(kmeans(Z_gae, 5, seed=seed), y)),
+    }
+
+    # 6. link_auc
+    split = link_split(A, seed=seed)
+    A_train = split["A_train"]
+    test_pos = split["test_pos"]
+    test_neg = split["test_neg"]
+
+    Z_em_lp, _ = laplacian_eigenmaps(A_train, 16, tau=1.0)
+    S_em_lp = -pairwise_distances(Z_em_lp, "euclidean") ** 2
+
+    Zs_lp, Zt_lp = netmf_embedding(A_train, T=5, dim=16)
+
+    Z_gae_lp = train_gae(split, X, loss="sampled", steps=S(200), seed=seed)["Z"]
+    Z_gae_full_lp = train_gae(split, X, loss="full", steps=S(200), seed=seed)["Z"]
+    Z_gae_full_uw_lp = train_gae(split, X, loss="full_unweighted", steps=S(200), seed=seed)["Z"]
+
+    X_eye = np.eye(N, dtype=np.float32)
+    Z_gae_nofeat = train_gae(split, X_eye, loss="sampled", steps=S(200), seed=seed)["Z"]
+
+    split_nograph = dict(split)
+    split_nograph["A_train"] = np.zeros_like(A_train)
+    Z_gae_nograph = train_gae(split_nograph, X, loss="sampled", steps=S(200), seed=seed)["Z"]
+
+    link_auc_stats = {
+        "oracle": float(pair_auc(P, test_pos, test_neg)),
+        "common_neighbors": float(pair_auc(A_train @ A_train, test_pos, test_neg)),
+        "eigenmaps": float(pair_auc(S_em_lp, test_pos, test_neg)),
+        "netmf": float(pair_auc(Zs_lp @ Zt_lp.T, test_pos, test_neg)),
+        "gae": float(pair_auc(Z_gae_lp @ Z_gae_lp.T, test_pos, test_neg)),
+        "gae_full": float(pair_auc(Z_gae_full_lp @ Z_gae_full_lp.T, test_pos, test_neg)),
+        "gae_full_unweighted": float(pair_auc(Z_gae_full_uw_lp @ Z_gae_full_uw_lp.T, test_pos, test_neg)),
+        "gae_no_features": float(pair_auc(Z_gae_nofeat @ Z_gae_nofeat.T, test_pos, test_neg)),
+        "gae_no_graph": float(pair_auc(Z_gae_nograph @ Z_gae_nograph.T, test_pos, test_neg)),
+    }
+
+    # 7. vgae
+    vgae_list = []
+    for kl_w in (1.0, 100.0, 300.0, 1000.0):
+        v_res = train_vgae(split, X, kl_weight=kl_w, steps=S(200), seed=seed)
+        mu = v_res["mu"]
+        kl_dim = v_res["kl_per_dim"]
+        vgae_list.append({
+            "kl_weight": float(kl_w),
+            "auc": float(pair_auc(mu @ mu.T, test_pos, test_neg)),
+            "kl_per_node": float(np.sum(kl_dim)),
+            "active_dims": int(np.sum(kl_dim > 0.1)),
+        })
+
+    # 8. hetero
+    g_het = contextual_sbm(n=n, avg_degree=8.0, homophily=0.05, degree_shape=0, seed=seed)
+    A_het, X_het, y_het = g_het["A"], g_het["X"], g_het["y"]
+    k_het = int(y_het.max()) + 1
+    labeled_het, unlabeled_het = few_labels(y_het, 10, seed=seed)
+
+    F_harm_het = harmonic_labels(A_het, labeled_het, y_het[labeled_het], k_het)
+    F_spread_het = label_spreading(A_het, labeled_het, y_het[labeled_het], k_het)
+    X_smooth_het = smoothed_features(A_het, X_het)
+    gcn_het = train_gcn_classifier(A_het, X_het, y_het, labeled_het, steps=S(200), seed=seed)
+
+    Z_em_het, _ = laplacian_eigenmaps(A_het, k_het - 1, tau=1.0)
+
+    hetero_stats = {
+        "homophily": float(edge_homophily(A_het, y_het)),
+        "harmonic": float(node_accuracy(F_harm_het, y_het, unlabeled_het)),
+        "spreading": float(node_accuracy(F_spread_het, y_het, unlabeled_het)),
+        "features": float(linear_probe(X_het, y_het, labeled_het, unlabeled_het, seed=seed)),
+        "smoothed": float(linear_probe(X_smooth_het, y_het, labeled_het, unlabeled_het, seed=seed)),
+        "gcn": float(node_accuracy(gcn_het, y_het, unlabeled_het)),
+        "ari_eigenmaps": float(adjusted_rand_index(kmeans(Z_em_het, k_het, seed=seed), y_het)),
+        "ari_features": float(adjusted_rand_index(kmeans(X_het, k_het, seed=seed), y_het)),
+    }
+
+    # 9. tree
+    A_tree, parent, level = balanced_tree(*tree)
+    D_tree = tree_distances(parent)
+    n_tree = A_tree.shape[0]
+
+    poincare_res = {}
+    for d in (2, 5):
+        Z_p, _ = train_tree_embedding(
+            A_tree, dim=d, geometry="poincare", steps=S(2000), burn=S(200), seed=seed
+        )
+        D_p = pairwise_distances(Z_p, "poincare")
+        mr, mp = reconstruction_metrics(D_p, A_tree)
+        dist_p = average_distortion(D_p, D_tree)
+        root_radius = float(np.linalg.norm(Z_p[0]))
+        root_dists = D_p[0]
+        if np.std(root_dists) > 0 and np.std(level) > 0:
+            corr = float(np.corrcoef(root_dists, level)[0, 1])
+        else:
+            corr = 0.0
+        poincare_res[d] = {
+            "mean_rank": float(mr),
+            "map": float(mp),
+            "distortion": float(dist_p),
+            "root_radius": root_radius,
+            "root_level_corr": corr,
+        }
+
+    euclidean_res = {}
+    for d in (2, 5, 10):
+        Z_e, _ = train_tree_embedding(
+            A_tree, dim=d, geometry="euclidean", steps=S(2000), burn=S(200), seed=seed
+        )
+        D_e = pairwise_distances(Z_e, "euclidean")
+        mr, mp = reconstruction_metrics(D_e, A_tree)
+        dist_e = average_distortion(D_e, D_tree)
+        euclidean_res[d] = {
+            "mean_rank": float(mr),
+            "map": float(mp),
+            "distortion": float(dist_e),
+        }
+
+    mds_res = {}
+    for d in (2, 5, 10):
+        Z_m = classical_mds(D_tree, d)
+        D_m = pairwise_distances(Z_m, "euclidean")
+        mr, mp = reconstruction_metrics(D_m, A_tree)
+        dist_m = average_distortion(D_m, D_tree)
+        mds_res[d] = {
+            "mean_rank": float(mr),
+            "map": float(mp),
+            "distortion": float(dist_m),
+        }
+
+    tree_stats = {
+        "nodes": int(n_tree),
+        "poincare": poincare_res,
+        "euclidean": euclidean_res,
+        "mds": mds_res,
+    }
+
+    elapsed = float(time.perf_counter() - t0)
+
+    return {
+        "graph": graph_stats,
+        "flood": flood_stats,
+        "node_accuracy": node_acc,
+        "joint_beta": joint_beta,
+        "ari": ari_stats,
+        "zero_eigenvalues": zero_evals,
+        "link_auc": link_auc_stats,
+        "vgae": vgae_list,
+        "hetero": hetero_stats,
+        "tree": tree_stats,
+        "table": GRAPH_EDM_TABLE,
+        "seconds": elapsed,
+    }
+
