@@ -38,6 +38,7 @@ python scaffold.py
 - [x] **26.** riemannian_update
 - [x] **27.** train_tree_embedding
 - [x] **28.** reconstruction_metrics
+- [x] **29.** classical_mds
 
 ---
 

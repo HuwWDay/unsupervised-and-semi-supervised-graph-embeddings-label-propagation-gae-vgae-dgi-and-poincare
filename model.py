@@ -1325,3 +1325,37 @@ def reconstruction_metrics(D, A):
     mean_ap = float(np.mean(node_aps))
     return mean_rank, mean_ap
 
+# Step 29 - classical_mds
+import numpy as np
+
+
+def classical_mds(D, dim):
+    D = np.asarray(D, dtype=np.float64)
+    D2 = D ** 2
+
+    # Double-centre D^2: B = -0.5 * J @ D2 @ J
+    row_mean = D2.mean(axis=1, keepdims=True)
+    col_mean = D2.mean(axis=0, keepdims=True)
+    grand_mean = D2.mean()
+    B = -0.5 * (D2 - row_mean - col_mean + grand_mean)
+
+    # Eigendecomposition of symmetric matrix B
+    eigvals, eigvecs = np.linalg.eigh(B)
+
+    # Sort eigenvalues and eigenvectors in decreasing order
+    idx = np.argsort(eigvals)[::-1][:dim]
+    top_vals = np.maximum(eigvals[idx], 0.0)
+    top_vecs = eigvecs[:, idx]
+
+    return top_vecs * np.sqrt(top_vals)[None, :]
+
+
+def average_distortion(D_emb, D_true):
+    D_emb = np.asarray(D_emb, dtype=np.float64)
+    D_true = np.asarray(D_true, dtype=np.float64)
+
+    iu = np.triu_indices(D_true.shape[0], k=1)
+    rho = D_emb[iu] / D_true[iu]
+    c = np.mean(rho)
+    return float(np.mean(np.abs(rho / c - 1.0)))
+
