@@ -33,6 +33,7 @@ python scaffold.py
 - [x] **21.** linear_probe
 - [x] **22.** train_gcn_classifier
 - [x] **23.** sample_context_pairs
+- [x] **24.** train_planetoid
 
 ---
 

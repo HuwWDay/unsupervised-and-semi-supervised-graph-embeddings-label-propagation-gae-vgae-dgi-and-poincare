@@ -1033,3 +1033,86 @@ def sample_context_pairs(cdf, m, rng, neg_frac=0.5):
 
     return i.astype(np.int32), j.astype(np.int32), gamma.astype(np.float32)
 
+# Step 24 - train_planetoid
+import numpy as np
+from tinygrad import Tensor
+
+
+def train_planetoid(S, X, y, labeled, zc_dim=16, hidden=8, pre=500, joint=200, wd=0.05, m=2000, lr=0.01, seed=0):
+    X = np.asarray(X, dtype=np.float32)
+    y = np.asarray(y, dtype=np.int64)
+    labeled = np.asarray(labeled, dtype=np.int32)
+
+    N, D = X.shape
+    k = int(y.max()) + 1
+
+    # Initialize Zc, W1, W2 in exact order using rng0
+    rng0 = np.random.default_rng(seed)
+    Zc = Tensor(rng0.normal(0.0, 0.1, (N, zc_dim)).astype(np.float32)).contiguous().realize()
+    W1 = glorot(rng0, D, hidden)
+    W2 = glorot(rng0, zc_dim + hidden, k)
+
+    cdf = context_cdf(S)
+
+    def batch_fn(rng):
+        return sample_context_pairs(cdf, m, rng)
+
+    def context_loss(i, j, gamma):
+        return -((Zc[i] * Zc[j]).sum(1) * gamma).logsigmoid().mean()
+
+    # 1. Pretraining Zc on context loss
+    if pre > 0:
+        edm_fit(
+            [Zc],
+            recon=context_loss,
+            alpha=0.0,
+            beta=1.0,
+            batch_fn=batch_fn,
+            steps=pre,
+            lr=lr,
+            seed=seed,
+        )
+
+    Zc_pre = Zc.numpy().copy()
+
+    # 2. Joint training on supervised + context + L2 regularization losses
+    Xt = Tensor(X).realize()
+    labeled_t = Tensor(labeled).realize()
+    y_labeled_t = Tensor(y[labeled].astype(np.int32)).realize()
+
+    def forward_logits():
+        h_feat = (Xt @ W1).relu()
+        h = Zc.cat(h_feat, dim=1)
+        return h @ W2
+
+    def sup():
+        logits_labeled = forward_logits()[labeled_t]
+        return logits_labeled.sparse_categorical_crossentropy(y_labeled_t)
+
+    def reg():
+        return (W1 * W1).sum() + (W2 * W2).sum()
+
+    if joint > 0:
+        edm_fit(
+            [Zc, W1, W2],
+            sup=sup,
+            recon=context_loss,
+            reg=reg,
+            alpha=1.0,
+            beta=1.0,
+            gamma=wd,
+            batch_fn=batch_fn,
+            steps=joint,
+            lr=lr,
+            seed=seed,
+        )
+
+    logits = forward_logits().numpy()
+    Zc_final = Zc.numpy().copy()
+
+    return {
+        "logits": logits,
+        "Zc": Zc_final,
+        "Zc_pre": Zc_pre,
+    }
+
