@@ -994,3 +994,42 @@ def train_gcn_classifier(A, X, y, labeled, hidden=32, dim=16, beta=0.0, wd=5e-4,
 
     return (enc(Ahat, Xt) @ Wc).numpy()
 
+# Step 23 - sample_context_pairs
+import numpy as np
+
+
+def context_cdf(S):
+    S = np.array(S, dtype=np.float64, copy=True)
+    N = S.shape[0]
+    row_sums = S.sum(axis=1)
+
+    # Replace any empty row with a self-loop on its diagonal
+    zero_rows = row_sums == 0
+    if np.any(zero_rows):
+        idx = np.flatnonzero(zero_rows)
+        S[idx, idx] = 1.0
+        row_sums[idx] = 1.0
+
+    probs = S / row_sums[:, None]
+    return np.cumsum(probs, axis=1)
+
+
+def sample_context_pairs(cdf, m, rng, neg_frac=0.5):
+    N = cdf.shape[0]
+
+    # 1-4: Draw random variables in the exact specified order
+    i = rng.integers(0, N, m)
+    u = rng.random(m)
+    coin = rng.random(m)
+    other = rng.integers(0, N, m)
+
+    # Positive contexts via inverse CDF, clipped to [0, N - 1]
+    j = np.clip((cdf[i] < u[:, None]).sum(axis=1), 0, N - 1)
+
+    # Negative sampling mask
+    is_neg = coin < neg_frac
+    j = np.where(is_neg, other, j)
+    gamma = np.where(is_neg, -1.0, 1.0)
+
+    return i.astype(np.int32), j.astype(np.int32), gamma.astype(np.float32)
+
